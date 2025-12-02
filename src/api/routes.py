@@ -299,7 +299,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 </html>
 """
 
-def _get_recovery_page(self):
+    def _get_recovery_page(self):
 """返回恢复页面HTML（用于无头模式）"""
 return """
 <!DOCTYPE html>
