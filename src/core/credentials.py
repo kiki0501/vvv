@@ -69,9 +69,21 @@ class CredentialManager:
             self.refresh_event.set()
 
     async def wait_for_refresh(self, timeout=30):
-        """等待凭证刷新完成"""
+        """
+        等待凭证刷新完成
+        
+        使用时间戳检查 + 事件通知的混合机制：
+        - 主动检查凭证时间戳是否更新
+        - 使用事件通知加速检测
+        - 不完全依赖事件，避免错过通知
+        """
         self.pending_requests += 1
-        print(f"   ⏳ 等待凭证刷新... (队列: {self.pending_requests})")
+        request_id = id(asyncio.current_task())
+        print(f"   ⏳ [请求 {request_id}] 等待凭证刷新... (队列: {self.pending_requests})")
+        
+        # 记录开始等待时的凭证时间戳
+        start_time = time.time()
+        old_timestamp = self.last_updated
         
         # 只有第一个等待者才清除事件
         async with self.refresh_lock:
@@ -79,17 +91,44 @@ class CredentialManager:
                 self._is_refreshing = True
                 self.refresh_event.clear()
                 self.refresh_complete_event.clear()
+                print(f"   🔍 [请求 {request_id}] 触发刷新，旧凭证时间戳: {old_timestamp}")
         
         try:
-            await asyncio.wait_for(self.refresh_event.wait(), timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            print(f"   ⚠️ 凭证刷新超时 ({timeout}秒)")
+            # 轮询检查凭证是否已更新
+            while time.time() - start_time < timeout:
+                # 首先检查凭证时间戳是否已更新
+                if self.last_updated > old_timestamp:
+                    elapsed = time.time() - start_time
+                    print(f"   ✅ [请求 {request_id}] 检测到新凭证 (等待 {elapsed:.1f}秒)")
+                    print(f"      旧时间戳: {old_timestamp}, 新时间戳: {self.last_updated}")
+                    return True
+                
+                # 等待事件通知（最多 1 秒），加速检测
+                try:
+                    await asyncio.wait_for(self.refresh_event.wait(), timeout=1.0)
+                    # 事件被触发，立即检查凭证
+                    if self.last_updated > old_timestamp:
+                        elapsed = time.time() - start_time
+                        print(f"   ✅ [请求 {request_id}] 事件通知收到，凭证已更新 (等待 {elapsed:.1f}秒)")
+                        return True
+                    else:
+                        # 事件被触发但凭证未更新，可能是误触发，继续等待
+                        # print(f"   ⚠️ [请求 {request_id}] 事件触发但凭证未更新，继续等待...")
+                        pass
+                except asyncio.TimeoutError:
+                    # 1 秒超时，继续轮询
+                    pass
+            
+            # 超时
+            elapsed = time.time() - start_time
+            print(f"   ⚠️ [请求 {request_id}] 凭证刷新超时 ({elapsed:.1f}秒)")
             return False
+            
         finally:
             self.pending_requests -= 1
             if self.pending_requests == 0:
                 self._is_refreshing = False
+                print(f"   🏁 [请求 {request_id}] 最后一个等待者退出")
 
     async def wait_for_refresh_complete(self, timeout=30):
         """等待前端UI刷新完成"""

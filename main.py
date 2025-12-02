@@ -41,6 +41,7 @@ async def headless_token_refresh() -> None:
         try:
             # 记录刷新前的凭证时间戳
             old_timestamp = cred_manager.last_updated
+            print(f"   🔍 刷新前凭证时间戳: {old_timestamp}")
             
             # 先尝试关闭任何可能的 overlay
             await _headless_browser._dismiss_overlays()
@@ -48,18 +49,26 @@ async def headless_token_refresh() -> None:
             success = await _headless_browser.send_test_message()
             if success:
                 # 等待凭证实际更新（最多等待 5 秒）
-                for _ in range(10):
+                for i in range(10):
                     await asyncio.sleep(0.5)
                     if cred_manager.last_updated > old_timestamp:
-                        print("✅ 无头模式: 凭证已更新")
+                        new_timestamp = cred_manager.last_updated
+                        print(f"✅ 无头模式: 凭证已更新")
+                        print(f"   新凭证时间戳: {new_timestamp} (延迟 {new_timestamp - old_timestamp:.1f}秒)")
                         _refresh_fail_count = 0
-                        # 关键：主动通知所有等待者刷新已完成
+                        
+                        # 关键修改：立即设置事件，通知所有等待者
                         cred_manager.refresh_event.set()
                         cred_manager.refresh_complete_event.set()
+                        
+                        # 记录通知的请求数
+                        if cred_manager.pending_requests > 0:
+                            print(f"   📢 已通知 {cred_manager.pending_requests} 个等待请求")
+                        
                         return  # 成功，直接返回
                 
                 # send_test_message 成功但凭证未更新，可能被 recaptcha 拦截
-                print("⚠️ 无头模式: 消息已发送但凭证未更新")
+                print("⚠️ 无头模式: 消息已发送但凭证未更新 (可能被 recaptcha 拦截)")
                 # 标记失败，解除等待
                 cred_manager.mark_refresh_failed()
             

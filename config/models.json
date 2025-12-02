@@ -2,6 +2,7 @@
   "models": [
     "gemini-3-pro-preview-low",
     "gemini-3-pro-preview-high",
+    "gemini-3-pro-preview",
     "gemini-3-pro-image-preview",
     "gemini-3-pro-image-preview-1k",
     "gemini-3-pro-image-preview-2k",
