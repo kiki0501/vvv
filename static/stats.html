@@ -79,6 +79,7 @@
             align-items: center;
             gap: 12px;
             flex-wrap: wrap;
+            justify-content: flex-end;
         }
 
         .info-pill {
@@ -105,62 +106,6 @@
             background: #f3f4f6;
         }
 
-        .refresh-btn {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 0 24px;
-            height: 40px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: background-color 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-            white-space: nowrap;
-            flex-shrink: 0;
-            min-width: 120px;
-        }
-
-        .refresh-btn:hover:not(.loading) {
-            background-color: var(--primary-hover);
-        }
-
-        .refresh-btn.loading {
-            opacity: 0.8;
-            cursor: not-allowed;
-        }
-
-        .refresh-btn .icon-wrapper {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 20px;
-            height: 20px;
-            flex-shrink: 0;
-            position: relative;
-        }
-
-        .refresh-btn .icon-wrapper svg {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            top: 0;
-            left: 0;
-        }
-        
-        #loadingSpinner.spinning {
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
 
         /* 网格布局 */
         .stats-grid {
@@ -381,18 +326,6 @@
                     </svg>
                     <span id="nextReset">--</span>
                 </div>
-                <button class="refresh-btn" onclick="loadStats()">
-                    <span class="icon-wrapper">
-                        <svg id="refreshIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="23 4 23 10 17 10"></polyline>
-                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                        </svg>
-                        <svg id="loadingSpinner" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
-                            <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
-                        </svg>
-                    </span>
-                    <span>刷新数据</span>
-                </button>
             </div>
         </div>
 
@@ -425,17 +358,9 @@
 
         // 加载统计数据
         async function loadStats() {
-            const refreshBtn = document.querySelector('.refresh-btn');
-            const refreshIcon = document.getElementById('refreshIcon');
             const statsContainer = document.getElementById('statsContainer');
             const errorContainer = document.getElementById('errorContainer');
             
-            // 设置加载状态
-            refreshBtn.classList.add('loading');
-            refreshBtn.disabled = true;
-            refreshIcon.style.display = 'none';
-            document.getElementById('loadingSpinner').style.display = 'inline-flex';
-            document.getElementById('loadingSpinner').classList.add('spinning');
             errorContainer.innerHTML = '';
 
             try {
@@ -529,13 +454,6 @@
                     </div>
                 `;
                 statsContainer.innerHTML = '';
-            } finally {
-                // 恢复按钮状态
-                refreshBtn.classList.remove('loading');
-                refreshBtn.disabled = false;
-                refreshIcon.style.display = 'inline-flex';
-                document.getElementById('loadingSpinner').style.display = 'none';
-                document.getElementById('loadingSpinner').classList.remove('spinning');
             }
         }
         
