@@ -29,14 +29,25 @@ _headless_browser = None
 _refresh_fail_count = 0
 # 触发重定向的失败阈值
 _REDIRECT_THRESHOLD = 2
+# 全局刷新锁（防止并发刷新）
+_refresh_lock = asyncio.Lock()
 
 
 async def headless_token_refresh() -> None:
     """无头模式凭证刷新，连续失败时重定向到 Vertex AI Studio"""
     global _headless_browser, _refresh_fail_count
     
-    if _headless_browser and _headless_browser.is_running:
-        print("🔄 无头模式: 按需刷新凭证...")
+    # 获取刷新锁，防止并发刷新
+    if _refresh_lock.locked():
+        print("⏳ 检测到正在进行的凭证刷新，等待完成...")
+        async with _refresh_lock:
+            # 锁释放后直接返回，因为凭证已经被其他请求刷新了
+            print("✅ 凭证刷新已由其他请求完成")
+            return
+    
+    async with _refresh_lock:
+        if _headless_browser and _headless_browser.is_running:
+            print("🔄 无头模式: 按需刷新凭证...")
         
         try:
             # 记录刷新前的凭证时间戳
