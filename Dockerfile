@@ -46,6 +46,7 @@ RUN playwright install chromium
 # 4. 拷贝应用代码（放在后面以利用缓存）
 COPY main.py ./
 COPY src/ ./src/
+COPY static/ ./static/
 
 # 5. 拷贝配置模板（用于初始化）
 COPY config/ ./config-template/
