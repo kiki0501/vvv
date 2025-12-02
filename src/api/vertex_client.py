@@ -175,7 +175,8 @@ class VertexAIClient:
         return response
 
     async def stream_chat(self, messages: List[Dict[str, str]], model: str, **kwargs):
-        """流式聊天"""
+        """流式聊天 - 优化版（支持请求队列和预刷新）"""
+        request_id = str(uuid.uuid4())[:8]  # 生成请求ID用于追踪
         if not self.cred_manager.latest_harvest or (time.time() - self.cred_manager.last_updated > 3000):
             async with self.cred_manager.refresh_lock:
                 should_refresh = False
@@ -189,11 +190,12 @@ class VertexAIClient:
                     if self.request_token_refresh:
                         await self.request_token_refresh()
                     
-                    print("⏳ 等待新凭证...")
-                    refreshed = await self.cred_manager.wait_for_refresh(timeout=60)
+                    print(f"[{request_id}] ⏳ 等待新凭证...")
+                    # 使用新的队列机制等待
+                    refreshed = await self.cred_manager.wait_for_credential_with_queue(request_id, timeout=60)
                     
                     if refreshed:
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.5)  # 短暂延迟确保凭证就绪
                     
                     if not refreshed and not self.cred_manager.latest_harvest:
                         error_msg = "⚠️ **Proxy Error**: Could not refresh credentials.\n\nPlease ensure **Google Vertex AI Studio** is open in your browser and the Harvester script is active."
@@ -208,7 +210,14 @@ class VertexAIClient:
                         yield "data: [DONE]\n\n"
                         return
 
-        max_retries = 2
+        # 预刷新检测：如果凭证即将过期，提前触发刷新
+        if self.cred_manager.should_preemptive_refresh(threshold=120):
+            print(f"[{request_id}] 🔄 凭证即将过期，触发预刷新...")
+            if self.request_token_refresh:
+                # 异步触发刷新，不阻塞当前请求
+                asyncio.create_task(self.request_token_refresh())
+
+        max_retries = 3  # 增加重试次数
         content_yielded = False
         isolated_client = self._create_isolated_client()
         
@@ -216,6 +225,9 @@ class VertexAIClient:
             for attempt in range(max_retries + 1):
                 stream_processor = get_stream_processor()
                 stream_processor.enable_debug(True)
+                
+                # 记录当前凭证版本
+                current_cred_version = self.cred_manager.credential_version
                 
                 creds = self.cred_manager.get_credentials()
                 if not creds:
@@ -558,30 +570,24 @@ class VertexAIClient:
                             
                             # Check for potential token expiration
                             if response.status_code in [400, 401, 403] and attempt < max_retries:
-                                print(f"⚠️ 认证错误 ({response.status_code})，刷新中...")
-                                
-                                # 记录刷新前的凭证时间戳
-                                old_cred_timestamp = self.cred_manager.last_updated
-                                print(f"   🔍 当前凭证时间戳: {old_cred_timestamp}")
+                                print(f"[{request_id}] ⚠️ 认证错误 ({response.status_code})，触发刷新...")
                                 
                                 # Trigger UI Refresh
                                 if self.request_token_refresh:
                                     await self.request_token_refresh()
                                 
-                                # Wait for new credentials
+                                # 使用队列机制等待新凭证（更快响应）
                                 refresh_start = time.time()
-                                refreshed = await self.cred_manager.wait_for_refresh(timeout=45)
+                                refreshed = await self.cred_manager.wait_for_credential_with_queue(request_id, timeout=30)
                                 refresh_elapsed = time.time() - refresh_start
                                 
                                 if refreshed:
-                                    # 验证凭证确实已更新
-                                    new_cred_timestamp = self.cred_manager.last_updated
-                                    if new_cred_timestamp > old_cred_timestamp:
-                                        print(f"✅ 凭证已更新 (刷新耗时 {refresh_elapsed:.1f}秒)")
-                                        print(f"   旧时间戳: {old_cred_timestamp}")
-                                        print(f"   新时间戳: {new_cred_timestamp}")
+                                    # 验证凭证版本是否更新
+                                    new_version = self.cred_manager.credential_version
+                                    if new_version > current_cred_version:
+                                        print(f"[{request_id}] ✅ 凭证已更新 v{current_cred_version} → v{new_version} ({refresh_elapsed:.1f}秒)")
                                         
-                                        await asyncio.sleep(0.5) # Short delay
+                                        await asyncio.sleep(0.3)  # 短暂延迟
                                         # Update headers/url with new credentials
                                         new_creds = self.cred_manager.get_credentials()
                                         headers = new_creds['headers'].copy()
@@ -589,12 +595,12 @@ class VertexAIClient:
                                         headers.pop('content-length', None)
                                         headers.pop('host', None)
                                         url = new_creds['url']
-                                        print(f"🔄 使用新凭证重试请求...")
+                                        print(f"[{request_id}] 🔄 使用新凭证重试...")
                                         continue # Retry loop
                                     else:
-                                        print(f"⚠️ 凭证未更新 (时间戳未变化)")
+                                        print(f"[{request_id}] ⚠️ 凭证版本未变化")
                                 else:
-                                    print(f"⚠️ 凭证刷新超时 (等待 {refresh_elapsed:.1f}秒)")
+                                    print(f"[{request_id}] ⚠️ 凭证刷新超时 ({refresh_elapsed:.1f}秒)")
                             
                             # If we get here, it's a fatal error or retry failed
                             error_payload = {"error": {"message": f"Upstream Error: {response.status_code} - {error_text.decode()}", "type": "upstream_error"}}
@@ -646,39 +652,29 @@ class VertexAIClient:
                                 return
                             
                             if attempt < max_retries:
-                                print(f"🔄 认证错误，触发刷新并重试 (尝试 {attempt+1}/{max_retries+1})...")
-                                
-                                # 记录刷新前的凭证时间戳
-                                old_cred_timestamp = self.cred_manager.last_updated
-                                print(f"   🔍 当前凭证时间戳: {old_cred_timestamp}")
+                                print(f"[{request_id}] 🔄 流中认证错误，触发刷新 (尝试 {attempt+1}/{max_retries+1})")
                                 
                                 # 触发刷新
                                 if self.request_token_refresh:
                                     await self.request_token_refresh()
                                 
-                                # 等待凭证刷新（使用优化后的等待机制）
+                                # 使用队列机制等待新凭证
                                 refresh_start = time.time()
-                                refreshed = await self.cred_manager.wait_for_refresh(timeout=45)
+                                refreshed = await self.cred_manager.wait_for_credential_with_queue(request_id, timeout=30)
                                 refresh_elapsed = time.time() - refresh_start
                                 
                                 if refreshed:
-                                    # 验证凭证确实已更新
-                                    new_cred_timestamp = self.cred_manager.last_updated
-                                    if new_cred_timestamp > old_cred_timestamp:
-                                        print(f"✅ 凭证已更新 (刷新耗时 {refresh_elapsed:.1f}秒)")
-                                        print(f"   旧时间戳: {old_cred_timestamp}")
-                                        print(f"   新时间戳: {new_cred_timestamp}")
-                                        
-                                        # 短暂延迟，确保新凭证完全就绪
-                                        await asyncio.sleep(0.5)
-                                        
-                                        print(f"🔄 使用新凭证重试请求...")
+                                    # 验证凭证版本是否更新
+                                    new_version = self.cred_manager.credential_version
+                                    if new_version > current_cred_version:
+                                        print(f"[{request_id}] ✅ 凭证已更新 v{current_cred_version} → v{new_version} ({refresh_elapsed:.1f}秒)")
+                                        await asyncio.sleep(0.3)
+                                        print(f"[{request_id}] 🔄 使用新凭证重试...")
                                         continue  # 重试循环
                                     else:
-                                        print(f"⚠️ 凭证未更新 (时间戳未变化)")
-                                        print(f"   当前时间戳: {new_cred_timestamp}")
+                                        print(f"[{request_id}] ⚠️ 凭证版本未变化")
                                 else:
-                                    print(f"⚠️ 凭证刷新超时 (等待 {refresh_elapsed:.1f}秒)")
+                                    print(f"[{request_id}] ⚠️ 凭证刷新超时 ({refresh_elapsed:.1f}秒)")
                             
                             # 重试用尽或刷新失败 - 静默失败，让系统自动处理
                             print(f"⚠️ 凭证刷新失败，已达最大重试次数")
