@@ -603,6 +603,8 @@
                     </div>
                 `;
                 statsContainer.innerHTML = '';
+            }
+        }
 
         // 加载凭证池状态
         async function loadCredentialsPool() {
@@ -701,8 +703,6 @@
                 container.innerHTML = '';
             }
         }
-            }
-        }
         
         // 检查响应状态，如果401则清除Cookie并重定向
         async function checkAuth(response) {
@@ -724,12 +724,14 @@
             }
             autoRefreshInterval = setInterval(() => {
                 loadStats();
+                loadCredentialsPool();
             }, 30000);
         }
 
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', () => {
             loadStats();
+            loadCredentialsPool();
             startAutoRefresh();
             
             // 每分钟更新一次重置时间
@@ -746,6 +748,7 @@
                 }
             } else {
                 loadStats();
+                loadCredentialsPool();
                 startAutoRefresh();
             }
         });
