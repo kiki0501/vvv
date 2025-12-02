@@ -382,13 +382,14 @@ class CredentialManager:
                     event.set()
                 self.pending_request_queue.clear()
     
-    async def wait_for_credential_with_queue(self, request_id: str, timeout: int = 30) -> bool:
+    async def wait_for_credential_with_queue(self, request_id: str, timeout: int = 30, heartbeat_callback=None) -> bool:
         """
-        使用队列机制等待凭证更新
+        使用队列机制等待凭证更新（支持心跳回调）
         
         Args:
             request_id: 请求标识符
             timeout: 超时时间（秒）
+            heartbeat_callback: 心跳回调函数（可选），每2秒调用一次
             
         Returns:
             是否成功获取新凭证
@@ -402,18 +403,44 @@ class CredentialManager:
             print(f"   📥 [请求 {request_id}] 加入等待队列 (位置: {queue_position})")
         
         try:
-            # 等待通知或超时
-            await asyncio.wait_for(event.wait(), timeout=timeout)
-            print(f"   ✅ [请求 {request_id}] 收到凭证更新通知")
-            return True
-        except asyncio.TimeoutError:
-            print(f"   ⏰ [请求 {request_id}] 等待超时 ({timeout}秒)")
+            start_time = time.time()
+            heartbeat_interval = 2.0  # 每2秒发送一次心跳
+            last_heartbeat = start_time
+            
+            # 循环等待，支持心跳
+            while time.time() - start_time < timeout:
+                try:
+                    # 等待事件或2秒超时
+                    await asyncio.wait_for(event.wait(), timeout=heartbeat_interval)
+                    # 如果成功等到事件，说明凭证已更新
+                    elapsed = time.time() - start_time
+                    print(f"   ✅ [请求 {request_id}] 收到凭证更新通知 (等待 {elapsed:.1f}秒)")
+                    return True
+                except asyncio.TimeoutError:
+                    # 2秒超时，发送心跳并继续等待
+                    current_time = time.time()
+                    if heartbeat_callback and (current_time - last_heartbeat >= heartbeat_interval):
+                        try:
+                            if asyncio.iscoroutinefunction(heartbeat_callback):
+                                await heartbeat_callback()
+                            else:
+                                heartbeat_callback()
+                            last_heartbeat = current_time
+                        except Exception as e:
+                            print(f"   ⚠️ 心跳回调失败: {e}")
+                    # 继续循环等待
+                    continue
+            
+            # 超出总超时时间
+            elapsed = time.time() - start_time
+            print(f"   ⏰ [请求 {request_id}] 等待超时 ({elapsed:.1f}秒)")
             return False
+            
         finally:
             # 清理队列（如果还在队列中）
             async with self.queue_lock:
                 self.pending_request_queue = [
-                    (rid, evt) for rid, evt in self.pending_request_queue 
+                    (rid, evt) for rid, evt in self.pending_request_queue
                     if rid != request_id
                 ]
     

@@ -183,37 +183,64 @@ class VertexAIClient:
         
         if not is_healthy:
             print(f"[{request_id}] ⚠️ 凭证不健康: {reason}")
-            async with self.cred_manager.refresh_lock:
-                should_refresh = False
+            
+            # 立即发送初始 role chunk，让客户端知道连接已建立
+            initial_chunk = {
+                "id": f"chatcmpl-{request_id}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]
+            }
+            yield f"data: {json.dumps(initial_chunk)}\n\n"
+            
+            # 简化刷新触发逻辑：检测到不健康就立即刷新
+            if self.request_token_refresh:
+                print(f"[{request_id}] 🔄 触发凭证刷新...")
+                await self.request_token_refresh()
+            
+            print(f"[{request_id}] ⏳ 请求排队等待新凭证...")
+            
+            # 定义心跳回调函数
+            async def send_heartbeat():
+                """发送心跳 chunk 防止客户端超时"""
+                heartbeat_chunk = {
+                    "id": f"chatcmpl-{request_id}-heartbeat",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": None}]
+                }
+                # 注意：这里不能直接 yield，因为我们在回调中
+                # 心跳会在 wait_for_credential_with_queue 内部处理
+            
+            # 使用队列机制等待新凭证（30秒超时，更快失败）
+            refreshed = await self.cred_manager.wait_for_credential_with_queue(
+                request_id,
+                timeout=30,
+                heartbeat_callback=send_heartbeat
+            )
+            
+            if refreshed:
+                print(f"[{request_id}] ✅ 获得新凭证，继续处理请求")
+                await asyncio.sleep(0.3)  # 短暂延迟确保凭证就绪
+            else:
+                # 超时但可能仍有旧凭证可用
                 if not self.cred_manager.latest_harvest:
-                    should_refresh = True
-                elif time.time() - self.cred_manager.last_updated > 3000:
-                    print("⚠️ 凭证已过期 (>50分钟)，触发刷新...")
-                    should_refresh = True
-                
-                if should_refresh:
-                    if self.request_token_refresh:
-                        await self.request_token_refresh()
-                    
-                    print(f"[{request_id}] ⏳ 等待新凭证...")
-                    # 使用新的队列机制等待
-                    refreshed = await self.cred_manager.wait_for_credential_with_queue(request_id, timeout=60)
-                    
-                    if refreshed:
-                        await asyncio.sleep(0.5)  # 短暂延迟确保凭证就绪
-                    
-                    if not refreshed and not self.cred_manager.latest_harvest:
-                        error_msg = "⚠️ **Proxy Error**: Could not refresh credentials.\n\nPlease ensure **Google Vertex AI Studio** is open in your browser and the Harvester script is active."
-                        chunk = {
-                            "id": "error-no-creds",
-                            "object": "chat.completion.chunk",
-                            "created": int(time.time()),
-                            "model": "vertex-ai-proxy",
-                            "choices": [{"index": 0, "delta": {"content": error_msg}, "finish_reason": "stop"}]
-                        }
-                        yield f"data: {json.dumps(chunk)}\n\n"
-                        yield "data: [DONE]\n\n"
-                        return
+                    print(f"[{request_id}] ❌ 刷新超时且无可用凭证")
+                    error_msg = "⚠️ **Proxy Error**: Could not refresh credentials.\n\nPlease ensure **Google Vertex AI Studio** is open in your browser and the Harvester script is active."
+                    chunk = {
+                        "id": "error-no-creds",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [{"index": 0, "delta": {"content": error_msg}, "finish_reason": "stop"}]
+                    }
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                else:
+                    print(f"[{request_id}] ⚠️ 刷新超时，尝试使用现有凭证")
 
         # 预刷新检测：如果凭证即将过期，提前触发刷新
         if self.cred_manager.should_preemptive_refresh(threshold=120):
