@@ -299,6 +299,107 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 </html>
 """
 
+def _get_recovery_page(self):
+"""返回恢复页面HTML（用于无头模式）"""
+return """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>正在验证...</title>
+<style>
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    background-color: #f3f4f6;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.recovery-container {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    padding: 40px;
+    max-width: 400px;
+    width: 100%;
+    border: 1px solid #e5e7eb;
+    text-align: center;
+}
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e5e7eb;
+    border-top: 3px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.message {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+.error {
+    color: #ef4444;
+    font-size: 13px;
+    margin-top: 16px;
+    display: none;
+}
+</style>
+</head>
+<body>
+<div class="recovery-container">
+<div class="spinner"></div>
+<div class="message">正在验证身份...</div>
+<div class="error" id="errorMsg">验证失败，将跳转到登录页</div>
+</div>
+
+<script>
+// 尝试从localStorage获取API key并设置Cookie
+const savedKey = localStorage.getItem('stats_api_key');
+
+if (savedKey) {
+    // 设置Cookie
+    document.cookie = 'stats_api_key=' + savedKey + '; path=/; max-age=2592000; SameSite=Strict';
+    
+    // 验证API key
+    fetch('/api/stats', {
+        headers: {
+            'Authorization': 'Bearer ' + savedKey
+        }
+    }).then(response => {
+        if (response.ok) {
+            // 成功，重定向到干净的URL
+            window.location.href = '/stats';
+        } else {
+            // 失败，显示错误
+            document.getElementById('errorMsg').style.display = 'block';
+            setTimeout(() => {
+                window.location.href = '/stats';
+            }, 2000);
+        }
+    }).catch(() => {
+        // 网络错误
+        document.getElementById('errorMsg').style.display = 'block';
+        setTimeout(() => {
+            window.location.href = '/stats';
+        }, 2000);
+    });
+} else {
+    // 没有保存的key，直接跳转到登录页
+    window.location.href = '/stats';
+}
+</script>
+</body>
+</html>
+"""
 
 class ConnectionCompatibilityMiddleware(BaseHTTPMiddleware):
     """
