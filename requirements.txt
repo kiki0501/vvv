@@ -1,7 +1,7 @@
 # 核心依赖
 fastapi
 uvicorn
-httpx
+httpx[http2]
 websockets
 pydantic
 
