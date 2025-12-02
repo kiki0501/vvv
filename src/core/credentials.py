@@ -47,16 +47,14 @@ class CredentialManager:
             print(f"⚠️ 保存凭证失败: {e}")
 
     def update(self, data: Dict[str, Any]):
-        # 清理旧凭证数据，释放内存
+        # 更新凭证（旧凭证会被Python垃圾回收器自动清理）
         if self.latest_harvest:
-            print(f"🧹 清理旧凭证数据...")
-            # 直接删除引用，让垃圾回收器回收内存
-            del self.latest_harvest
+            print(f"🔄 替换旧凭证...")
         
         # 保存新凭证
         self.latest_harvest = data
         self.last_updated = time.time()
-        print(f"🔄 凭证已更新 @ {time.strftime('%H:%M:%S')}")
+        print(f"✅ 凭证已更新 @ {time.strftime('%H:%M:%S')}")
         self.save_to_disk()
         self.refresh_event.set()
 
