@@ -45,6 +45,17 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 else:
                     api_key = auth_header
             
+            # 无头模式特殊处理：如果有temp参数，尝试从localStorage恢复
+            if not api_key and request.url.path in ["/stats", "/"]:
+                temp_token = request.query_params.get("temp", "")
+                if temp_token:
+                    # 返回一个特殊的页面，尝试从localStorage恢复API key
+                    return Response(
+                        content=self._get_recovery_page(),
+                        status_code=200,
+                        media_type="text/html"
+                    )
+            
             # 验证密钥
             if api_key not in self.api_keys:
                 # 统计页面返回HTML登录页面
@@ -243,8 +254,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     document.cookie = 'stats_api_key=' + apiKey + '; path=/; max-age=2592000; SameSite=Strict';
                     // 保存到localStorage作为备份
                     localStorage.setItem('stats_api_key', apiKey);
-                    // 跳转到统计页面（不带URL参数）
-                    window.location.href = '/stats';
+                    // 跳转到统计页面（带临时token用于首次验证）
+                    const tempToken = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                    window.location.href = '/stats?temp=' + encodeURIComponent(tempToken);
                 } else {
                     errorMsg.classList.add('show');
                     apiKeyInput.value = '';
@@ -264,8 +276,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         }, {});
         
         if (cookies.stats_api_key) {
-            // Cookie会自动发送，直接跳转
-            window.location.href = '/stats';
+            // Cookie会自动发送，直接跳转（带临时token）
+            const tempToken = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            window.location.href = '/stats?temp=' + encodeURIComponent(tempToken);
         } else if (localStorage.getItem('stats_api_key')) {
             // 尝试用localStorage的key重新设置Cookie
             const savedKey = localStorage.getItem('stats_api_key');
@@ -276,7 +289,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             }).then(response => {
                 if (response.ok) {
                     document.cookie = 'stats_api_key=' + savedKey + '; path=/; max-age=2592000; SameSite=Strict';
-                    window.location.href = '/stats';
+                    const tempToken = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                    window.location.href = '/stats?temp=' + encodeURIComponent(tempToken);
                 }
             });
         }
@@ -325,10 +339,10 @@ def create_app(vertex_client: VertexAIClient, stats_manager: TokenStatsManager) 
     
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Allows all origins
-        allow_credentials=True,
-        allow_methods=["*"],  # Allows all methods
-        allow_headers=["*"],  # Allows all headers
+        allow_origins=["*"],  # 允许所有来源（生产环境建议限制具体域名）
+        allow_credentials=True,  # 允许发送Cookie
+        allow_methods=["GET", "POST", "OPTIONS"],  # 明确指定允许的方法
+        allow_headers=["*"],  # 允许所有请求头
         expose_headers=["*"],  # 暴露所有响应头给客户端
     )
     
