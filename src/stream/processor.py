@@ -271,7 +271,16 @@ class StreamProcessor:
                     # 抛出认证错误以便上层重试
                     if "Recaptcha" in msg or "token" in msg.lower() or "Authentication" in msg:
                         raise AuthError(f"Authentication failed: {msg}")
-                continue
+                    
+                    # 将错误消息传递给客户端
+                    if not self._role_sent:
+                        self._role_sent = True
+                        yield self.sse_formatter.create_initial_role_chunk(model)
+                        self.buffer.mark_yield()
+                    
+                    error_content = f"\n
+⚠️ **API Error**: {msg}\n"
+                    yield from self._yield_content(error_content, model)
             
             result_data = result.get('data')
             if not result_data:

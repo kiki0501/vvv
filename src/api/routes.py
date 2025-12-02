@@ -28,8 +28,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         if not self.enabled:
             return await call_next(request)
         
-        # 跳过健康检查端点和模型列表
-        if request.url.path in ["/health", "/v1/models"]:
+        # 跳过健康检查端点、模型列表和凭证状态
+        if request.url.path in ["/health", "/v1/models", "/api/credentials/status"]:
             return await call_next(request)
         
         # 统计页面和API也需要验证（优先Cookie，其次Header）
