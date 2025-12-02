@@ -142,6 +142,66 @@ python main.py
 
 使用已保存的凭证文件 config/credentials.json。
 
+## API 密钥验证
+
+为了保护你的反代服务，可以启用 API 密钥验证。
+
+### 配置密钥
+
+通过环境变量 `API_KEYS` 设置密钥（逗号分隔多个密钥）：
+
+#### Docker Compose 方式
+
+编辑 `docker-compose.yml`：
+
+```yaml
+environment:
+  - PYTHONUNBUFFERED=1
+  - API_KEYS=sk-your-secret-key-1,sk-your-secret-key-2
+```
+
+#### Docker 命令方式
+
+```bash
+docker run -d \
+  -e API_KEYS=sk-your-secret-key-1,sk-your-secret-key-2 \
+  -p 7860:7860 \
+  vvvvvv-proxy
+```
+
+#### 本地运行方式
+
+```bash
+export API_KEYS=sk-your-secret-key-1,sk-your-secret-key-2
+python main.py
+```
+
+- **不设置**：不验证，任何人都可以访问
+- **设置密钥**：只有使用正确密钥的请求才能访问
+
+### 使用密钥
+
+客户端配置时，在 API Key 字段填入你设置的密钥：
+
+| 配置项 | 值 |
+|--------|-----|
+| Base URL | http://127.0.0.1:7860/v1 |
+| API Key | sk-your-secret-key-1 |
+| Model | gemini-2.5-pro 等 |
+
+### 密钥格式
+
+支持两种格式：
+- `Authorization: Bearer sk-xxx`（推荐）
+- `Authorization: sk-xxx`
+
+### 跳过验证的端点
+
+以下端点不需要密钥：
+- `/health` - 健康检查
+- `/` - 根路径
+- `/v1/models` - 模型列表
+
 ## 配置说明
 
 ### config/config.json

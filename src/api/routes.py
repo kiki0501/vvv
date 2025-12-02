@@ -2,16 +2,60 @@
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from typing import Dict, Any
+from typing import Dict, Any, List
 
-from src.core import MODELS_CONFIG_FILE, TokenStatsManager
+from src.core import MODELS_CONFIG_FILE, TokenStatsManager, load_config
 from src.api.vertex_client import VertexAIClient
+
+
+class APIKeyAuthMiddleware(BaseHTTPMiddleware):
+    """API 密钥验证中间件"""
+    
+    def __init__(self, app, api_keys: List[str]):
+        super().__init__(app)
+        self.api_keys = api_keys
+        self.enabled = len(api_keys) > 0
+    
+    async def dispatch(self, request: Request, call_next):
+        # 如果未配置密钥，则不验证
+        if not self.enabled:
+            return await call_next(request)
+        
+        # 跳过健康检查端点
+        if request.url.path in ["/health", "/", "/v1/models"]:
+            return await call_next(request)
+        
+        # 从 Authorization 头获取密钥
+        auth_header = request.headers.get("Authorization", "")
+        
+        # 支持 "Bearer sk-xxx" 和 "sk-xxx" 两种格式
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header[7:]
+        else:
+            api_key = auth_header
+        
+        # 验证密钥
+        if api_key not in self.api_keys:
+            return Response(
+                content=json.dumps({
+                    "error": {
+                        "message": "Invalid API key",
+                        "type": "invalid_request_error",
+                        "code": "invalid_api_key"
+                    }
+                }),
+                status_code=401,
+                media_type="application/json"
+            )
+        
+        return await call_next(request)
 
 
 class ConnectionCompatibilityMiddleware(BaseHTTPMiddleware):
@@ -36,6 +80,17 @@ class ConnectionCompatibilityMiddleware(BaseHTTPMiddleware):
 def create_app(vertex_client: VertexAIClient, stats_manager: TokenStatsManager) -> FastAPI:
     """创建FastAPI应用"""
     app = FastAPI()
+    
+    # 从环境变量读取 API 密钥（逗号分隔）
+    api_keys_env = os.getenv("API_KEYS", "")
+    if api_keys_env:
+        api_keys = [key.strip() for key in api_keys_env.split(",") if key.strip()]
+        print(f"🔐 API 密钥验证已启用 ({len(api_keys)} 个密钥)")
+    else:
+        api_keys = []
+        print("⚠️ API 密钥验证未启用（未设置 API_KEYS 环境变量）")
+    
+    app.add_middleware(APIKeyAuthMiddleware, api_keys=api_keys)
     
     # 添加连接兼容性中间件
     app.add_middleware(ConnectionCompatibilityMiddleware)

@@ -13,8 +13,10 @@ services:
       # 挂载配置文件（可选，用于持久化配置）
       - ./config:/app/config
     environment:
-      # 可以通过环境变量覆盖配置
+      # Python 环境
       - PYTHONUNBUFFERED=1
+      # API 密钥（逗号分隔多个密钥）
+      # - API_KEYS=sk-your-secret-key-1,sk-your-secret-key-2
     restart: unless-stopped
     # 如果需要使用 GPU（可选）
     # deploy:
