@@ -62,8 +62,9 @@ async def headless_token_refresh() -> None:
                         cred_manager.refresh_complete_event.set()
                         
                         # 记录通知的请求数
-                        if cred_manager.pending_requests > 0:
-                            print(f"   📢 已通知 {cred_manager.pending_requests} 个等待请求")
+                        queue_len = len(cred_manager.pending_request_queue)
+                        if queue_len > 0:
+                            print(f"   📢 已通知 {queue_len} 个等待请求")
                         
                         return  # 成功，直接返回
                 
