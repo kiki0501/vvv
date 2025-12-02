@@ -370,6 +370,22 @@
     <script>
         let autoRefreshInterval = null;
 
+        // 获取API Key（从URL参数或localStorage）
+        function getApiKey() {
+            const urlParams = new URLSearchParams(window.location.search);
+            let apiKey = urlParams.get('api_key');
+            
+            if (apiKey) {
+                // 保存到localStorage
+                localStorage.setItem('stats_api_key', apiKey);
+            } else {
+                // 从localStorage读取
+                apiKey = localStorage.getItem('stats_api_key');
+            }
+            
+            return apiKey;
+        }
+
         // 格式化数字，添加千位分隔符
         function formatNumber(num) {
             return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -397,6 +413,13 @@
             const statsContainer = document.getElementById('statsContainer');
             const errorContainer = document.getElementById('errorContainer');
             
+            // 获取API Key
+            const apiKey = getApiKey();
+            if (!apiKey) {
+                window.location.href = '/stats';
+                return;
+            }
+            
             // 设置加载状态
             refreshBtn.classList.add('loading');
             refreshBtn.disabled = true;
@@ -404,7 +427,7 @@
             errorContainer.innerHTML = '';
 
             try {
-                const response = await fetch('/api/stats');
+                const response = await fetch('/api/stats?api_key=' + encodeURIComponent(apiKey));
                 const result = await response.json();
 
                 if (!result.success) {
@@ -477,6 +500,14 @@
 
             } catch (error) {
                 console.error('加载统计数据失败:', error);
+                
+                // 如果是401错误，清除保存的key并重定向到登录页
+                if (error.message.includes('401')) {
+                    localStorage.removeItem('stats_api_key');
+                    window.location.href = '/stats';
+                    return;
+                }
+                
                 errorContainer.innerHTML = `
                     <div class="error">
                         ⚠️ 加载统计数据失败: ${error.message}

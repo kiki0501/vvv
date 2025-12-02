@@ -28,11 +28,49 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         if not self.enabled:
             return await call_next(request)
         
-        # 跳过健康检查端点和统计页面
-        if request.url.path in ["/health", "/", "/v1/models", "/stats", "/api/stats"]:
+        # 跳过健康检查端点和模型列表
+        if request.url.path in ["/health", "/v1/models"]:
             return await call_next(request)
         
-        # 从 Authorization 头获取密钥
+        # 统计页面和API也需要验证（支持query参数和header两种方式）
+        if request.url.path in ["/stats", "/api/stats", "/"]:
+            # 尝试从query参数获取API key
+            api_key = request.query_params.get("api_key", "")
+            
+            # 如果query参数没有，尝试从Authorization头获取
+            if not api_key:
+                auth_header = request.headers.get("Authorization", "")
+                if auth_header.startswith("Bearer "):
+                    api_key = auth_header[7:]
+                else:
+                    api_key = auth_header
+            
+            # 验证密钥
+            if api_key not in self.api_keys:
+                # 统计页面返回HTML登录页面
+                if request.url.path in ["/stats", "/"]:
+                    return Response(
+                        content=self._get_login_page(),
+                        status_code=401,
+                        media_type="text/html"
+                    )
+                # API返回JSON错误
+                else:
+                    return Response(
+                        content=json.dumps({
+                            "error": {
+                                "message": "Invalid API key",
+                                "type": "invalid_request_error",
+                                "code": "invalid_api_key"
+                            }
+                        }),
+                        status_code=401,
+                        media_type="application/json"
+                    )
+            
+            return await call_next(request)
+        
+        # 其他端点从 Authorization 头获取密钥
         auth_header = request.headers.get("Authorization", "")
         
         # 支持 "Bearer sk-xxx" 和 "sk-xxx" 两种格式
@@ -56,6 +94,174 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             )
         
         return await call_next(request)
+    
+    def _get_login_page(self):
+        """返回登录页面HTML"""
+        return """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>统计页面 - 身份验证</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .login-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 400px;
+            width: 100%;
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .subtitle {
+            color: #6b7280;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .input-group {
+            margin-bottom: 24px;
+        }
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            transition: all 0.2s;
+            outline: none;
+        }
+        input[type="password"]:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .error {
+            background: #fef2f2;
+            color: #991b1b;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 16px;
+            display: none;
+        }
+        .error.show {
+            display: block;
+        }
+        .icon {
+            text-align: center;
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="icon">🔐</div>
+        <h1>统计仪表板</h1>
+        <p class="subtitle">请输入 API Key 以访问</p>
+        
+        <form id="loginForm">
+            <div class="input-group">
+                <label for="apiKey">API Key</label>
+                <input type="password" id="apiKey" placeholder="输入您的 API Key" autocomplete="off" required>
+            </div>
+            <button type="submit">访问仪表板</button>
+            <div class="error" id="errorMsg">API Key 无效，请重试</div>
+        </form>
+    </div>
+
+    <script>
+        const form = document.getElementById('loginForm');
+        const apiKeyInput = document.getElementById('apiKey');
+        const errorMsg = document.getElementById('errorMsg');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorMsg.classList.remove('show');
+            
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) return;
+
+            // 验证API Key
+            try {
+                const response = await fetch('/api/stats?api_key=' + encodeURIComponent(apiKey));
+                if (response.ok) {
+                    // 保存API Key到localStorage
+                    localStorage.setItem('stats_api_key', apiKey);
+                    // 跳转到统计页面
+                    window.location.href = '/stats?api_key=' + encodeURIComponent(apiKey);
+                } else {
+                    errorMsg.classList.add('show');
+                    apiKeyInput.value = '';
+                    apiKeyInput.focus();
+                }
+            } catch (error) {
+                errorMsg.textContent = '网络错误，请重试';
+                errorMsg.classList.add('show');
+            }
+        });
+
+        // 如果localStorage中有API Key，自动尝试登录
+        const savedKey = localStorage.getItem('stats_api_key');
+        if (savedKey) {
+            fetch('/api/stats?api_key=' + encodeURIComponent(savedKey))
+                .then(response => {
+                    if (response.ok) {
+                        window.location.href = '/stats?api_key=' + encodeURIComponent(savedKey);
+                    }
+                });
+        }
+    </script>
+</body>
+</html>
+"""
 
 
 class ConnectionCompatibilityMiddleware(BaseHTTPMiddleware):
