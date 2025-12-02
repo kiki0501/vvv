@@ -239,10 +239,21 @@ def create_app(vertex_client: VertexAIClient, stats_manager: TokenStatsManager) 
     @app.get("/stats")
     async def stats_page():
         """统计页面"""
-        stats_html_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static", "stats.html")
+        # 获取项目根目录
+        current_file = os.path.abspath(__file__)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+        stats_html_path = os.path.join(project_root, "static", "stats.html")
+        
+        print(f"🔍 查找统计页面: {stats_html_path}")
+        print(f"   文件存在: {os.path.exists(stats_html_path)}")
+        
         if os.path.exists(stats_html_path):
-            return FileResponse(stats_html_path)
+            return FileResponse(stats_html_path, media_type="text/html")
         else:
-            return Response(content="统计页面未找到", status_code=404)
+            return Response(
+                content=f"统计页面未找到。查找路径: {stats_html_path}",
+                status_code=404,
+                media_type="text/plain"
+            )
     
     return app
