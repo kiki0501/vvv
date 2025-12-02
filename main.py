@@ -30,12 +30,16 @@ _refresh_fail_count = 0
 # 触发重定向的失败阈值
 _REDIRECT_THRESHOLD = 2
 # 全局刷新锁（防止并发刷新）
-_refresh_lock = asyncio.Lock()
+_refresh_lock = None
 
 
 async def headless_token_refresh() -> None:
     """无头模式凭证刷新，连续失败时重定向到 Vertex AI Studio"""
-    global _headless_browser, _refresh_fail_count
+    global _headless_browser, _refresh_fail_count, _refresh_lock
+    
+    # 延迟初始化锁（在异步上下文中）
+    if _refresh_lock is None:
+        _refresh_lock = asyncio.Lock()
     
     # 获取刷新锁，防止并发刷新
     if _refresh_lock.locked():
@@ -147,9 +151,9 @@ async def headless_token_refresh() -> None:
             print(f"❌ 无头模式: 凭证刷新异常: {e}")
             _refresh_fail_count += 1
             cred_manager.mark_refresh_failed()
-    else:
-        print("⚠️ 无头模式: 浏览器未运行，无法刷新凭证")
-        cred_manager.mark_refresh_failed()
+        else:
+            print("⚠️ 无头模式: 浏览器未运行，无法刷新凭证")
+            cred_manager.mark_refresh_failed()
 
 
 async def start_headless_mode(config: dict) -> None:
