@@ -113,8 +113,11 @@ class ModelConfigBuilder:
         
         if isinstance(gen_config, dict):
             if 'maxOutputTokens' in gen_config:
+                # 确保在有效范围内 (1-65536)
                 if gen_config['maxOutputTokens'] < 8192:
                     gen_config['maxOutputTokens'] = 65535
+                elif gen_config['maxOutputTokens'] > 65536:
+                    gen_config['maxOutputTokens'] = 65536
             else:
                 gen_config['maxOutputTokens'] = 65535
         
@@ -128,7 +131,15 @@ class ModelConfigBuilder:
             gen_config['topK'] = int(kwargs['top_k'])
             
         if 'max_tokens' in kwargs and kwargs['max_tokens'] is not None:
-            gen_config['maxOutputTokens'] = int(kwargs['max_tokens'])
+            # 限制在 API 允许的范围内 (1-65536)
+            max_tokens = int(kwargs['max_tokens'])
+            if max_tokens > 65536:
+                print(f"⚠️ max_tokens ({max_tokens}) 超过限制，已调整为 65536")
+                max_tokens = 65536
+            elif max_tokens < 1:
+                print(f"⚠️ max_tokens ({max_tokens}) 小于最小值，已调整为 8192")
+                max_tokens = 8192
+            gen_config['maxOutputTokens'] = max_tokens
             
         if 'stop' in kwargs and kwargs['stop'] is not None:
             gen_config['stopSequences'] = kwargs['stop'] if isinstance(kwargs['stop'], list) else [kwargs['stop']]
