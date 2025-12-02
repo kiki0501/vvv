@@ -9,11 +9,12 @@ from .constants import CREDENTIALS_FILE
 
 
 class CredentialManager:
-    """凭证管理器，支持并发刷新"""
+    """凭证管理器，支持并发刷新和请求队列"""
     def __init__(self, filepath=CREDENTIALS_FILE):
         self.filepath = filepath
         self.latest_harvest: Optional[Dict[str, Any]] = None
         self.last_updated: float = 0
+        self.credential_version: int = 0  # 凭证版本号
         self.refresh_event = asyncio.Event()
         self.refresh_complete_event = asyncio.Event()
         self.refresh_lock = asyncio.Lock()
@@ -21,6 +22,8 @@ class CredentialManager:
         self.refresh_complete_event.set()
         self.pending_requests = 0
         self._is_refreshing = False
+        self.pending_request_queue: list = []  # 等待队列
+        self.queue_lock = asyncio.Lock()
         self.load_from_disk()
 
     def load_from_disk(self):
@@ -51,12 +54,16 @@ class CredentialManager:
         if self.latest_harvest:
             print(f"🔄 替换旧凭证...")
         
-        # 保存新凭证
+        # 保存新凭证并递增版本号
         self.latest_harvest = data
         self.last_updated = time.time()
-        print(f"✅ 凭证已更新 @ {time.strftime('%H:%M:%S')}")
+        self.credential_version += 1
+        print(f"✅ 凭证已更新 v{self.credential_version} @ {time.strftime('%H:%M:%S')}")
         self.save_to_disk()
         self.refresh_event.set()
+        
+        # 立即通知所有等待队列中的请求
+        asyncio.create_task(self._notify_pending_requests())
 
     def update_token(self, token: str):
         if self.latest_harvest and 'headers' in self.latest_harvest:
@@ -64,9 +71,13 @@ class CredentialManager:
             self.latest_harvest['headers']['X-Goog-First-Party-Reauth'] = formatted_token
             
             self.last_updated = time.time()
-            print(f"🔄 Token 已刷新 @ {time.strftime('%H:%M:%S')}")
+            self.credential_version += 1
+            print(f"🔄 Token 已刷新 v{self.credential_version} @ {time.strftime('%H:%M:%S')}")
             self.save_to_disk()
             self.refresh_event.set()
+            
+            # 通知等待队列
+            asyncio.create_task(self._notify_pending_requests())
 
     async def wait_for_refresh(self, timeout=30):
         """
@@ -185,3 +196,78 @@ class CredentialManager:
         if not self.latest_harvest:
             return True
         return time.time() - self.last_updated > max_age
+    
+    def should_preemptive_refresh(self, threshold: int = 120) -> bool:
+        """
+        检查是否应该预刷新凭证
+        
+        在凭证即将过期前主动刷新，避免在请求进行中失效
+        
+        Args:
+            threshold: 提前刷新的时间阈值（秒），默认120秒（2分钟）
+            
+        Returns:
+            是否应该预刷新
+        """
+        if not self.latest_harvest:
+            return True
+        
+        age = time.time() - self.last_updated
+        max_age = 180  # 3分钟有效期
+        remaining = max_age - age
+        
+        return remaining < threshold
+    
+    async def _notify_pending_requests(self):
+        """
+        通知所有等待队列中的请求
+        
+        当新凭证到达时，立即唤醒所有等待的请求，
+        实现批量通知，减少延迟
+        """
+        async with self.queue_lock:
+            count = len(self.pending_request_queue)
+            if count > 0:
+                print(f"📢 通知 {count} 个等待中的请求使用新凭证")
+                # 唤醒所有等待的协程
+                for event in self.pending_request_queue:
+                    event.set()
+                self.pending_request_queue.clear()
+    
+    async def wait_for_credential_with_queue(self, request_id: str, timeout: int = 30) -> bool:
+        """
+        使用队列机制等待凭证更新
+        
+        优势：
+        1. 新凭证到达时立即通知（无轮询延迟）
+        2. 支持批量唤醒多个等待请求
+        3. 避免轮询开销，提升性能
+        
+        Args:
+            request_id: 请求标识符
+            timeout: 超时时间（秒）
+            
+        Returns:
+            是否成功获取新凭证
+        """
+        event = asyncio.Event()
+        
+        # 加入等待队列
+        async with self.queue_lock:
+            self.pending_request_queue.append(event)
+            queue_position = len(self.pending_request_queue)
+            print(f"   📥 [请求 {request_id}] 加入等待队列 (位置: {queue_position})")
+        
+        try:
+            # 等待通知或超时
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+            print(f"   ✅ [请求 {request_id}] 收到凭证更新通知")
+            return True
+        except asyncio.TimeoutError:
+            print(f"   ⏰ [请求 {request_id}] 等待超时 ({timeout}秒)")
+            return False
+        finally:
+            # 清理队列（如果还在队列中）
+            async with self.queue_lock:
+                if event in self.pending_request_queue:
+                    self.pending_request_queue.remove(event)
