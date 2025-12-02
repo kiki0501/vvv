@@ -268,31 +268,49 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             }
         });
 
-        // 如果Cookie中有API Key，自动尝试登录
-        const cookies = document.cookie.split(';').reduce((acc, cookie) => {
-            const [key, value] = cookie.trim().split('=');
-            acc[key] = value;
-            return acc;
-        }, {});
+        // 检查是否从失败的验证跳转回来，避免无限循环
+        const urlParams = new URLSearchParams(window.location.search);
+        const authFailed = urlParams.get('auth_failed');
         
-        if (cookies.stats_api_key) {
-            // Cookie会自动发送，直接跳转（带临时token）
-            const tempToken = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            window.location.href = '/stats?temp=' + encodeURIComponent(tempToken);
-        } else if (localStorage.getItem('stats_api_key')) {
-            // 尝试用localStorage的key重新设置Cookie
-            const savedKey = localStorage.getItem('stats_api_key');
-            fetch('/api/stats', {
-                headers: {
-                    'Authorization': 'Bearer ' + savedKey
-                }
-            }).then(response => {
-                if (response.ok) {
-                    document.cookie = 'stats_api_key=' + savedKey + '; path=/; max-age=2592000; SameSite=Strict';
-                    const tempToken = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                    window.location.href = '/stats?temp=' + encodeURIComponent(tempToken);
-                }
-            });
+        if (!authFailed) {
+            // 如果Cookie中有API Key，自动尝试登录
+            const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+                const [key, value] = cookie.trim().split('=');
+                acc[key] = value;
+                return acc;
+            }, {});
+            
+            if (cookies.stats_api_key) {
+                // Cookie会自动发送，直接跳转（带临时token）
+                const tempToken = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                window.location.href = '/stats?temp=' + encodeURIComponent(tempToken);
+            } else if (localStorage.getItem('stats_api_key')) {
+                // 尝试用localStorage的key重新设置Cookie
+                const savedKey = localStorage.getItem('stats_api_key');
+                fetch('/api/stats', {
+                    headers: {
+                        'Authorization': 'Bearer ' + savedKey
+                    }
+                }).then(response => {
+                    if (response.ok) {
+                        document.cookie = 'stats_api_key=' + savedKey + '; path=/; max-age=2592000; SameSite=Strict';
+                        const tempToken = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                        window.location.href = '/stats?temp=' + encodeURIComponent(tempToken);
+                    } else {
+                        // 验证失败，清除无效凭证
+                        localStorage.removeItem('stats_api_key');
+                    }
+                }).catch(() => {
+                    // 网络错误，清除凭证
+                    localStorage.removeItem('stats_api_key');
+                });
+            }
+        } else {
+            // 从失败的验证跳转回来，清除无效凭证
+            document.cookie = 'stats_api_key=; path=/; max-age=0';
+            localStorage.removeItem('stats_api_key');
+            errorMsg.textContent = '身份验证失败，请重新输入 API Key';
+            errorMsg.classList.add('show');
         }
     </script>
 </body>
@@ -379,22 +397,27 @@ if (savedKey) {
             // 成功，重定向到干净的URL
             window.location.href = '/stats';
         } else {
-            // 失败，显示错误
+            // 失败，清除无效凭证并跳转到登录页
+            document.cookie = 'stats_api_key=; path=/; max-age=0';
+            localStorage.removeItem('stats_api_key');
             document.getElementById('errorMsg').style.display = 'block';
             setTimeout(() => {
-                window.location.href = '/stats';
+                window.location.href = '/stats?auth_failed=1';
             }, 2000);
         }
     }).catch(() => {
-        // 网络错误
+        // 网络错误，清除凭证
+        document.cookie = 'stats_api_key=; path=/; max-age=0';
+        localStorage.removeItem('stats_api_key');
         document.getElementById('errorMsg').style.display = 'block';
         setTimeout(() => {
-            window.location.href = '/stats';
+            window.location.href = '/stats?auth_failed=1';
         }, 2000);
     });
 } else {
-    // 没有保存的key，直接跳转到登录页
-    window.location.href = '/stats';
+    // 没有保存的key，清除可能存在的无效Cookie并跳转到登录页
+    document.cookie = 'stats_api_key=; path=/; max-age=0';
+    window.location.href = '/stats?auth_failed=1';
 }
 </script>
 </body>
