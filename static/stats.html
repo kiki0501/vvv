@@ -110,7 +110,7 @@
             cursor: pointer;
             font-size: 14px;
             font-weight: 600;
-            transition: all 0.2s ease;
+            transition: background-color 0.2s ease;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -119,18 +119,12 @@
             white-space: nowrap;
         }
 
-        .refresh-btn:hover {
+        .refresh-btn:hover:not(.loading) {
             background-color: var(--primary-hover);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
-        }
-
-        .refresh-btn:active {
-            transform: translateY(0);
         }
 
         .refresh-btn.loading {
-            opacity: 0.7;
+            opacity: 0.8;
             cursor: not-allowed;
         }
 
@@ -141,6 +135,15 @@
             width: 20px;
             height: 20px;
             flex-shrink: 0;
+        }
+        
+        #refreshIcon.spinning {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
 
         /* 网格布局 */
@@ -370,22 +373,6 @@
     <script>
         let autoRefreshInterval = null;
 
-        // 获取API Key（从URL参数或localStorage）
-        function getApiKey() {
-            const urlParams = new URLSearchParams(window.location.search);
-            let apiKey = urlParams.get('api_key');
-            
-            if (apiKey) {
-                // 保存到localStorage
-                localStorage.setItem('stats_api_key', apiKey);
-            } else {
-                // 从localStorage读取
-                apiKey = localStorage.getItem('stats_api_key');
-            }
-            
-            return apiKey;
-        }
-
         // 格式化数字，添加千位分隔符
         function formatNumber(num) {
             return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -413,21 +400,17 @@
             const statsContainer = document.getElementById('statsContainer');
             const errorContainer = document.getElementById('errorContainer');
             
-            // 获取API Key
-            const apiKey = getApiKey();
-            if (!apiKey) {
-                window.location.href = '/stats';
-                return;
-            }
-            
             // 设置加载状态
             refreshBtn.classList.add('loading');
             refreshBtn.disabled = true;
-            refreshIcon.innerHTML = '<span class="spinner"></span>';
+            refreshIcon.classList.add('spinning');
             errorContainer.innerHTML = '';
 
             try {
-                const response = await fetch('/api/stats?api_key=' + encodeURIComponent(apiKey));
+                // Cookie会自动发送，无需手动添加
+                const response = await fetch('/api/stats', {
+                    credentials: 'same-origin'  // 确保发送Cookie
+                });
                 const result = await response.json();
 
                 if (!result.success) {
@@ -500,14 +483,6 @@
 
             } catch (error) {
                 console.error('加载统计数据失败:', error);
-                
-                // 如果是401错误，清除保存的key并重定向到登录页
-                if (error.message.includes('401')) {
-                    localStorage.removeItem('stats_api_key');
-                    window.location.href = '/stats';
-                    return;
-                }
-                
                 errorContainer.innerHTML = `
                     <div class="error">
                         ⚠️ 加载统计数据失败: ${error.message}
@@ -518,8 +493,21 @@
                 // 恢复按钮状态
                 refreshBtn.classList.remove('loading');
                 refreshBtn.disabled = false;
-                refreshIcon.textContent = '🔄';
+                refreshIcon.classList.remove('spinning');
             }
+        }
+        
+        // 检查响应状态，如果401则清除Cookie并重定向
+        async function checkAuth(response) {
+            if (response.status === 401) {
+                // 清除Cookie和localStorage
+                document.cookie = 'stats_api_key=; path=/; max-age=0';
+                localStorage.removeItem('stats_api_key');
+                // 重新加载页面会触发登录
+                window.location.reload();
+                return false;
+            }
+            return true;
         }
 
         // 启动自动刷新（每30秒）

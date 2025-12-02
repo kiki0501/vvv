@@ -32,12 +32,12 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in ["/health", "/v1/models"]:
             return await call_next(request)
         
-        # 统计页面和API也需要验证（支持query参数和header两种方式）
+        # 统计页面和API也需要验证（优先Cookie，其次Header）
         if request.url.path in ["/stats", "/api/stats", "/"]:
-            # 尝试从query参数获取API key
-            api_key = request.query_params.get("api_key", "")
+            # 优先从Cookie获取API key（避免URL泄露）
+            api_key = request.cookies.get("stats_api_key", "")
             
-            # 如果query参数没有，尝试从Authorization头获取
+            # 如果Cookie没有，尝试从Authorization头获取
             if not api_key:
                 auth_header = request.headers.get("Authorization", "")
                 if auth_header.startswith("Bearer "):
@@ -112,7 +112,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #f3f4f6;
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -122,10 +122,11 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         .login-container {
             background: white;
             border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             padding: 40px;
             max-width: 400px;
             width: 100%;
+            border: 1px solid #e5e7eb;
         }
         h1 {
             font-size: 24px;
@@ -160,24 +161,25 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             outline: none;
         }
         input[type="password"]:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
         button {
             width: 100%;
             padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #3b82f6;
             color: white;
             border: none;
             border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
         }
         button:hover {
+            background-color: #2563eb;
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
         }
         button:active {
             transform: translateY(0);
@@ -229,14 +231,20 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             const apiKey = apiKeyInput.value.trim();
             if (!apiKey) return;
 
-            // 验证API Key
+            // 验证API Key（通过Header，避免URL泄露）
             try {
-                const response = await fetch('/api/stats?api_key=' + encodeURIComponent(apiKey));
+                const response = await fetch('/api/stats', {
+                    headers: {
+                        'Authorization': 'Bearer ' + apiKey
+                    }
+                });
                 if (response.ok) {
-                    // 保存API Key到localStorage
+                    // 设置Cookie（HttpOnly通过服务器设置更安全，但这里客户端设置也可以）
+                    document.cookie = 'stats_api_key=' + apiKey + '; path=/; max-age=2592000; SameSite=Strict';
+                    // 保存到localStorage作为备份
                     localStorage.setItem('stats_api_key', apiKey);
-                    // 跳转到统计页面
-                    window.location.href = '/stats?api_key=' + encodeURIComponent(apiKey);
+                    // 跳转到统计页面（不带URL参数）
+                    window.location.href = '/stats';
                 } else {
                     errorMsg.classList.add('show');
                     apiKeyInput.value = '';
@@ -248,15 +256,29 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             }
         });
 
-        // 如果localStorage中有API Key，自动尝试登录
-        const savedKey = localStorage.getItem('stats_api_key');
-        if (savedKey) {
-            fetch('/api/stats?api_key=' + encodeURIComponent(savedKey))
-                .then(response => {
-                    if (response.ok) {
-                        window.location.href = '/stats?api_key=' + encodeURIComponent(savedKey);
-                    }
-                });
+        // 如果Cookie中有API Key，自动尝试登录
+        const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+            const [key, value] = cookie.trim().split('=');
+            acc[key] = value;
+            return acc;
+        }, {});
+        
+        if (cookies.stats_api_key) {
+            // Cookie会自动发送，直接跳转
+            window.location.href = '/stats';
+        } else if (localStorage.getItem('stats_api_key')) {
+            // 尝试用localStorage的key重新设置Cookie
+            const savedKey = localStorage.getItem('stats_api_key');
+            fetch('/api/stats', {
+                headers: {
+                    'Authorization': 'Bearer ' + savedKey
+                }
+            }).then(response => {
+                if (response.ok) {
+                    document.cookie = 'stats_api_key=' + savedKey + '; path=/; max-age=2592000; SameSite=Strict';
+                    window.location.href = '/stats';
+                }
+            });
         }
     </script>
 </body>
