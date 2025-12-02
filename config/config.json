@@ -1,0 +1,22 @@
+{
+  "_说明": "Vertex AI Headful Proxy 配置文件",
+  
+  "enable_sd_api": true,
+  "enable_sd_api_说明": "启用 SD WebUI 兼容 API (/sdapi/v1/*)",
+  
+  "enable_gui": false,
+  "enable_gui_说明": "启用桌面 GUI 窗口",
+  
+  "credential_mode": "headless",
+  "credential_mode_说明": "凭证模式: headful=浏览器脚本, headless=自动化浏览器, manual=手动文件",
+  
+  "headless": {
+    "_说明": "当 credential_mode 为 headless 时的配置",
+    "browser": "playwright",
+    "browser_说明": "浏览器引擎",
+    "auto_refresh_interval": 180,
+    "auto_refresh_interval_说明": "自动刷新间隔(秒), 建议180秒避免reCAPTCHA过期",
+    "show_browser": false,
+    "show_browser_说明": "显示浏览器窗口用于调试 (有头模式)"
+  }
+}

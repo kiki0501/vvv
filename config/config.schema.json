@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "项目配置",
+  "description": "Vertex AI Headful Proxy 的配置文件说明",
+  "type": "object",
+  "properties": {
+    "enable_sd_api": {
+      "type": "boolean",
+      "title": "启用 SD WebUI API",
+      "description": "设置为 true 以启用 Stable Diffusion WebUI 兼容性 API 端点 (/sdapi/v1/*)。"
+    },
+    "enable_gui": {
+      "type": "boolean",
+      "title": "启用图形用户界面 (GUI)",
+      "description": "设置为 true 以在启动时显示桌面 GUI 窗口。设置为 false 则仅在命令行模式下运行。"
+    },
+    "credential_mode": {
+      "type": "string",
+      "title": "凭证获取模式",
+      "description": "凭证获取方式: headful=浏览器脚本(默认), headless=无头浏览器自动获取, manual=从文件读取不刷新",
+      "enum": ["headful", "headless", "manual"],
+      "default": "headful"
+    },
+    "headless": {
+      "type": "object",
+      "title": "无头模式配置",
+      "description": "当 credential_mode 为 headless 时的配置选项",
+      "properties": {
+        "browser": {
+          "type": "string",
+          "title": "浏览器引擎",
+          "description": "使用的无头浏览器引擎",
+          "enum": ["playwright"],
+          "default": "playwright"
+        },
+        "auto_refresh_interval": {
+          "type": "integer",
+          "title": "自动刷新间隔",
+          "description": "凭证自动刷新间隔 (秒)，建议 180 秒以避免 reCAPTCHA 过期",
+          "default": 180,
+          "minimum": 60,
+          "maximum": 600
+        },
+        "show_browser": {
+          "type": "boolean",
+          "title": "显示浏览器窗口",
+          "description": "设为 true 可显示浏览器窗口用于调试",
+          "default": false
+        }
+      }
+    }
+  }
+}
