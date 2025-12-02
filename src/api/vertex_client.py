@@ -686,7 +686,14 @@ class VertexAIClient:
                             if attempt < max_retries:
                                 print(f"[{request_id}] 🔄 流中认证错误，触发刷新 (尝试 {attempt+1}/{max_retries+1})")
                                 
-                                # 触发刷新
+                                # 先检查是否已经有新凭证可用（可能刚刚刷新完成）
+                                new_version = self.cred_manager.credential_version
+                                if new_version > current_cred_version:
+                                    print(f"[{request_id}] ✅ 检测到新凭证 v{current_cred_version} → v{new_version}，直接重试")
+                                    await asyncio.sleep(0.3)
+                                    continue  # 直接重试，不需要等待
+                                
+                                # 没有新凭证，触发刷新
                                 if self.request_token_refresh:
                                     await self.request_token_refresh()
                                 
