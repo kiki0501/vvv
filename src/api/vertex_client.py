@@ -201,46 +201,74 @@ class VertexAIClient:
             
             print(f"[{request_id}] ⏳ 请求排队等待新凭证...")
             
-            # 定义心跳回调函数
-            async def send_heartbeat():
-                """发送心跳 chunk 防止客户端超时"""
-                heartbeat_chunk = {
-                    "id": f"chatcmpl-{request_id}-heartbeat",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model,
-                    "choices": [{"index": 0, "delta": {}, "finish_reason": None}]
-                }
-                # 注意：这里不能直接 yield，因为我们在回调中
-                # 心跳会在 wait_for_credential_with_queue 内部处理
+            # 使用自定义等待循环来实现心跳发送
+            # 因为 wait_for_credential_with_queue 无法直接 yield 数据给客户端
             
-            # 使用队列机制等待新凭证（30秒超时，更快失败）
-            refreshed = await self.cred_manager.wait_for_credential_with_queue(
-                request_id,
-                timeout=30,
-                heartbeat_callback=send_heartbeat
-            )
+            # 1. 加入等待队列
+            wait_event = asyncio.Event()
+            async with self.cred_manager.queue_lock:
+                self.cred_manager.pending_request_queue.append((request_id, wait_event))
+                queue_pos = len(self.cred_manager.pending_request_queue)
+                print(f"[{request_id}] 📥 加入等待队列 (位置: {queue_pos})")
             
-            if refreshed:
-                print(f"[{request_id}] ✅ 获得新凭证，继续处理请求")
-                await asyncio.sleep(0.3)  # 短暂延迟确保凭证就绪
-            else:
-                # 超时但可能仍有旧凭证可用
-                if not self.cred_manager.latest_harvest:
-                    print(f"[{request_id}] ❌ 刷新超时且无可用凭证")
-                    error_msg = "⚠️ **Proxy Error**: Could not refresh credentials.\n\nPlease ensure **Google Vertex AI Studio** is open in your browser and the Harvester script is active."
-                    chunk = {
-                        "id": "error-no-creds",
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": model,
-                        "choices": [{"index": 0, "delta": {"content": error_msg}, "finish_reason": "stop"}]
-                    }
-                    yield f"data: {json.dumps(chunk)}\n\n"
-                    yield "data: [DONE]\n\n"
-                    return
+            try:
+                start_time = time.time()
+                timeout = 30
+                heartbeat_interval = 2.0
+                last_heartbeat = start_time
+                refreshed = False
+                
+                while time.time() - start_time < timeout:
+                    try:
+                        # 等待事件或心跳间隔
+                        await asyncio.wait_for(wait_event.wait(), timeout=heartbeat_interval)
+                        refreshed = True
+                        elapsed = time.time() - start_time
+                        print(f"[{request_id}] ✅ 收到凭证更新通知 (等待 {elapsed:.1f}秒)")
+                        break
+                    except asyncio.TimeoutError:
+                        # 发送心跳
+                        heartbeat_chunk = {
+                            "id": f"chatcmpl-{request_id}-heartbeat",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": model,
+                            "choices": [{"index": 0, "delta": {}, "finish_reason": None}]
+                        }
+                        yield f"data: {json.dumps(heartbeat_chunk)}\n\n"
+                        # print(f"[{request_id}] 💓 发送心跳保活")
+                        continue
+                
+                if refreshed:
+                    print(f"[{request_id}] ✅ 获得新凭证，继续处理请求")
+                    await asyncio.sleep(0.3)  # 短暂延迟确保凭证就绪
                 else:
-                    print(f"[{request_id}] ⚠️ 刷新超时，尝试使用现有凭证")
+                    # 超时但可能仍有旧凭证可用
+                    elapsed = time.time() - start_time
+                    print(f"[{request_id}] ⏰ 等待超时 ({elapsed:.1f}秒)")
+                    
+                    if not self.cred_manager.latest_harvest:
+                        print(f"[{request_id}] ❌ 刷新超时且无可用凭证")
+                        error_msg = "⚠️ **Proxy Error**: Could not refresh credentials.\n\nPlease ensure **Google Vertex AI Studio** is open in your browser and the Harvester script is active."
+                        chunk = {
+                            "id": "error-no-creds",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": model,
+                            "choices": [{"index": 0, "delta": {"content": error_msg}, "finish_reason": "stop"}]
+                        }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+                    else:
+                        print(f"[{request_id}] ⚠️ 刷新超时，尝试使用现有凭证")
+            finally:
+                # 清理队列
+                async with self.cred_manager.queue_lock:
+                    self.cred_manager.pending_request_queue = [
+                        (rid, evt) for rid, evt in self.cred_manager.pending_request_queue
+                        if rid != request_id
+                    ]
 
         # 预刷新检测：如果凭证即将过期，提前触发刷新
         if self.cred_manager.should_preemptive_refresh(threshold=120):
