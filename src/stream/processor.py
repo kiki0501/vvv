@@ -278,8 +278,7 @@ class StreamProcessor:
                         yield self.sse_formatter.create_initial_role_chunk(model)
                         self.buffer.mark_yield()
                     
-                    error_content = f"\n
-⚠️ **API Error**: {msg}\n"
+                    error_content = f"\n⚠️ **API Error**: {msg}\n"
                     yield from self._yield_content(error_content, model)
             
             result_data = result.get('data')
