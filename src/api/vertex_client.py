@@ -695,7 +695,7 @@ class VertexAIClient:
                             prompt_tokens = self.stats_manager.estimate_messages_tokens(messages)
                             completion_tokens = max(1, int(total_completion_chars / 3.5)) if total_completion_chars > 0 else 1
                         
-                        await self.stats_manager.update(prompt_tokens, completion_tokens)
+                        await self.stats_manager.update(prompt_tokens, completion_tokens, model=model)
                         self.stats_manager.set_current_request_tokens(prompt_tokens, completion_tokens)
                         
                         # 发送包含usage的最终chunk给客户端
