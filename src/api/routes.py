@@ -104,6 +104,12 @@ def create_app(vertex_client: VertexAIClient, stats_manager: TokenStatsManager) 
         expose_headers=["*"],  # 暴露所有响应头给客户端
     )
     
+    @app.get("/")
+    async def root():
+        """根路径重定向到统计页面"""
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/stats")
+    
     @app.get("/v1/models")
     async def list_models():
         """返回可用模型列表"""
