@@ -40,8 +40,8 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir playwright
 
 # 3. 安装 Playwright 浏览器（这是最大的层，应该缓存）
-RUN playwright install chromium && \
-    playwright install-deps chromium
+# 注意：必须在设置环境变量之前安装，或者不设置 PLAYWRIGHT_BROWSERS_PATH
+RUN playwright install chromium
 
 # 4. 拷贝应用代码（放在后面以利用缓存）
 COPY main.py ./
@@ -58,7 +58,7 @@ EXPOSE 7861
 
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# 不设置 PLAYWRIGHT_BROWSERS_PATH，让 Playwright 使用默认路径
 
 # 定义容器启动命令
 CMD ["python", "main.py"]
