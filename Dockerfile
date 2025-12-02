@@ -46,11 +46,18 @@ RUN playwright install chromium
 # 4. 拷贝应用代码（放在后面以利用缓存）
 COPY main.py ./
 COPY src/ ./src/
-COPY config/ ./config/
 
-# 5. 创建必要的目录并设置权限
+# 5. 拷贝配置模板（用于初始化）
+COPY config/ ./config-template/
+
+# 6. 创建必要的目录并设置权限
 RUN mkdir -p ./config && \
+    chmod -R 777 ./config && \
     chmod -R 755 /app
+
+# 7. 拷贝并设置 entrypoint 脚本
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 暴露服务端口
 EXPOSE 7860
@@ -60,5 +67,6 @@ EXPOSE 7861
 ENV PYTHONUNBUFFERED=1
 # 不设置 PLAYWRIGHT_BROWSERS_PATH，让 Playwright 使用默认路径
 
-# 定义容器启动命令
+# 设置 entrypoint 和默认命令
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["python", "main.py"]
