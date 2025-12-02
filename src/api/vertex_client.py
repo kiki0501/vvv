@@ -252,7 +252,16 @@ class VertexAIClient:
                 
                 for i, msg in enumerate(messages):
                     if msg['role'] == 'system':
-                        system_instruction += msg['content'] + "\n"
+                        # 处理 system 消息的 content 可能是字符串或列表
+                        if isinstance(msg['content'], str):
+                            system_instruction += msg['content'] + "\n"
+                        elif isinstance(msg['content'], list):
+                            # 如果是列表,提取所有文本部分
+                            for part in msg['content']:
+                                if isinstance(part, dict) and part.get('type') == 'text':
+                                    system_instruction += part.get('text', '') + "\n"
+                                elif isinstance(part, str):
+                                    system_instruction += part + "\n"
                     elif msg['role'] == 'user':
                         parts = []
                         
