@@ -57,14 +57,12 @@ async def headless_token_refresh() -> None:
                         print(f"   新凭证时间戳: {new_timestamp} (延迟 {new_timestamp - old_timestamp:.1f}秒)")
                         _refresh_fail_count = 0
                         
-                        # 关键修改：立即设置事件，通知所有等待者
+                        # 立即设置事件
                         cred_manager.refresh_event.set()
                         cred_manager.refresh_complete_event.set()
                         
-                        # 记录通知的请求数
-                        queue_len = len(cred_manager.pending_request_queue)
-                        if queue_len > 0:
-                            print(f"   📢 已通知 {queue_len} 个等待请求")
+                        # 手动通知等待队列（确保通知发生在正确的时机）
+                        await cred_manager._notify_pending_requests()
                         
                         return  # 成功，直接返回
                 
