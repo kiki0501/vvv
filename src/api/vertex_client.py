@@ -680,11 +680,9 @@ class VertexAIClient:
                                 else:
                                     print(f"⚠️ 凭证刷新超时 (等待 {refresh_elapsed:.1f}秒)")
                             
-                            # 重试用尽或刷新失败 - 返回友好错误信息
-                            error_msg = "认证已过期，请刷新浏览器中的 Vertex AI Studio 页面后重试"
-                            error_payload = {"error": {"message": error_msg, "type": "authentication_error"}}
-                            yield f"data: {json.dumps(error_payload)}\n\n"
-                            yield "data: [DONE]\n\n"
+                            # 重试用尽或刷新失败 - 静默失败，让系统自动处理
+                            print(f"⚠️ 凭证刷新失败，已达最大重试次数")
+                            # 不向客户端返回错误信息，让请求静默失败
                             return
                         
                         # 估算并更新token统计

@@ -6,7 +6,7 @@ import os
 import time
 import uuid
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import StreamingResponse, Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Dict, Any, List
@@ -28,8 +28,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         if not self.enabled:
             return await call_next(request)
         
-        # 跳过健康检查端点
-        if request.url.path in ["/health", "/", "/v1/models"]:
+        # 跳过健康检查端点和统计页面
+        if request.url.path in ["/health", "/", "/v1/models", "/stats", "/api/stats"]:
             return await call_next(request)
         
         # 从 Authorization 头获取密钥
@@ -222,5 +222,27 @@ def create_app(vertex_client: VertexAIClient, stats_manager: TokenStatsManager) 
         except Exception as e:
             print(f"⚠️ 端点异常: {e}")
             raise HTTPException(status_code=500, detail={"error": str(e)})
+    
+    @app.get("/api/stats")
+    async def get_stats():
+        """获取每日统计数据"""
+        try:
+            daily_stats = stats_manager.get_daily_stats()
+            return {
+                "success": True,
+                "data": daily_stats
+            }
+        except Exception as e:
+            print(f"⚠️ 获取统计数据失败: {e}")
+            raise HTTPException(status_code=500, detail={"error": str(e)})
+    
+    @app.get("/stats")
+    async def stats_page():
+        """统计页面"""
+        stats_html_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static", "stats.html")
+        if os.path.exists(stats_html_path):
+            return FileResponse(stats_html_path)
+        else:
+            return Response(content="统计页面未找到", status_code=404)
     
     return app
