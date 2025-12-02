@@ -218,7 +218,7 @@ async def main():
         request_token_refresh_callback=refresh_callback
     )
     
-    app = create_app(vertex_client, stats_manager)
+    app = create_app(vertex_client, stats_manager, cred_manager)
     
     if config.get("enable_sd_api", False):
         try:

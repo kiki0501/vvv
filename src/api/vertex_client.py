@@ -175,9 +175,14 @@ class VertexAIClient:
         return response
 
     async def stream_chat(self, messages: List[Dict[str, str]], model: str, **kwargs):
-        """流式聊天 - 优化版（支持请求队列和预刷新）"""
+        """流式聊天 - 优化版（支持多凭证池和主动健康检查）"""
         request_id = str(uuid.uuid4())[:8]  # 生成请求ID用于追踪
-        if not self.cred_manager.latest_harvest or (time.time() - self.cred_manager.last_updated > 3000):
+        
+        # 🔍 主动健康检查
+        is_healthy, reason, best_slot = self.cred_manager.check_credential_health(max_age=180)
+        
+        if not is_healthy:
+            print(f"[{request_id}] ⚠️ 凭证不健康: {reason}")
             async with self.cred_manager.refresh_lock:
                 should_refresh = False
                 if not self.cred_manager.latest_harvest:

@@ -443,9 +443,12 @@ class ConnectionCompatibilityMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def create_app(vertex_client: VertexAIClient, stats_manager: TokenStatsManager) -> FastAPI:
+def create_app(vertex_client: VertexAIClient, stats_manager: TokenStatsManager, cred_manager=None) -> FastAPI:
     """创建FastAPI应用"""
     app = FastAPI()
+    
+    # 保存 cred_manager 引用（用于凭证池状态 API）
+    app.state.cred_manager = cred_manager
     
     # 从环境变量读取 API 密钥（逗号分隔）
     api_keys_env = os.getenv("API_KEYS", "")
@@ -627,5 +630,24 @@ def create_app(vertex_client: VertexAIClient, stats_manager: TokenStatsManager) 
                 status_code=404,
                 media_type="text/plain"
             )
+    
+    @app.get("/api/credentials/status")
+    async def get_credentials_status():
+        """获取凭证池状态"""
+        try:
+            if not app.state.cred_manager:
+                return {
+                    "success": False,
+                    "error": "Credential manager not available"
+                }
+            
+            pool_status = app.state.cred_manager.get_pool_status()
+            return {
+                "success": True,
+                "data": pool_status
+            }
+        except Exception as e:
+            print(f"⚠️ 获取凭证池状态失败: {e}")
+            raise HTTPException(status_code=500, detail={"error": str(e)})
     
     return app

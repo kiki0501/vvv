@@ -300,6 +300,152 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        /* 凭证池状态样式 */
+        .credentials-pool {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 32px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+        }
+
+        .credentials-pool-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .credentials-pool-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .credentials-pool-info {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .slots-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .slot-card {
+            background: #f9fafb;
+            border-radius: 12px;
+            padding: 16px;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .slot-card.active {
+            border-color: var(--success-color);
+            background: #f0fdf4;
+        }
+
+        .slot-card.expired {
+            border-color: #fbbf24;
+            background: #fffbeb;
+        }
+
+        .slot-card.invalid {
+            border-color: var(--error-color);
+            background: #fef2f2;
+        }
+
+        .slot-card.empty {
+            border-color: #e5e7eb;
+            opacity: 0.6;
+        }
+
+        .slot-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .slot-id {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .slot-status {
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 9999px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .slot-status.active {
+            background: var(--success-color);
+            color: white;
+        }
+
+        .slot-status.expired {
+            background: #fbbf24;
+            color: white;
+        }
+
+        .slot-status.invalid {
+            background: var(--error-color);
+            color: white;
+        }
+
+        .slot-status.empty {
+            background: #9ca3af;
+            color: white;
+        }
+
+        .slot-info {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .slot-info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .slot-info-label {
+            color: var(--text-secondary);
+        }
+
+        .slot-info-value {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .health-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+
+        .health-indicator.healthy {
+            background: var(--success-color);
+        }
+
+        .health-indicator.unhealthy {
+            background: var(--error-color);
+        }
     </style>
 </head>
 <body>
@@ -328,6 +474,9 @@
                 </div>
             </div>
         </div>
+
+        <!-- 凭证池状态 -->
+        <div id="credentialsPoolContainer"></div>
 
         <div id="errorContainer"></div>
         <div id="statsContainer" class="loading">正在加载统计数据...</div>
@@ -454,6 +603,104 @@
                     </div>
                 `;
                 statsContainer.innerHTML = '';
+
+        // 加载凭证池状态
+        async function loadCredentialsPool() {
+            const container = document.getElementById('credentialsPoolContainer');
+            
+            try {
+                const response = await fetch('/api/credentials/status', {
+                    credentials: 'same-origin'
+                });
+                
+                if (!response.ok) {
+                    container.innerHTML = '';
+                    return;
+                }
+                
+                const result = await response.json();
+                
+                if (!result.success || !result.data) {
+                    container.innerHTML = '';
+                    return;
+                }
+                
+                const data = result.data;
+                const slots = data.slots || [];
+                
+                // 渲染凭证池状态
+                const slotsHtml = slots.map(slot => {
+                    const statusClass = slot.status;
+                    const isHealthy = slot.is_healthy;
+                    const ageMinutes = Math.floor(slot.age_seconds / 60);
+                    const ageSeconds = slot.age_seconds % 60;
+                    const ageText = slot.status === 'empty' ? '--' : 
+                        ageMinutes > 0 ? `${ageMinutes}分${ageSeconds}秒` : `${ageSeconds}秒`;
+                    
+                    const statusText = {
+                        'active': '活跃',
+                        'expired': '过期',
+                        'invalid': '无效',
+                        'empty': '空'
+                    }[slot.status] || slot.status;
+                    
+                    const isActive = slot.slot_id === data.active_slot;
+                    
+                    return `
+                        <div class="slot-card ${statusClass} ${isActive ? 'active' : ''}">
+                            <div class="slot-header">
+                                <div class="slot-id">
+                                    <span class="health-indicator ${isHealthy ? 'healthy' : 'unhealthy'}"></span>
+                                    槽位 ${slot.slot_id}${isActive ? ' ⭐' : ''}
+                                </div>
+                                <span class="slot-status ${statusClass}">${statusText}</span>
+                            </div>
+                            <div class="slot-info">
+                                <div class="slot-info-row">
+                                    <span class="slot-info-label">年龄:</span>
+                                    <span class="slot-info-value">${ageText}</span>
+                                </div>
+                                <div class="slot-info-row">
+                                    <span class="slot-info-label">版本:</span>
+                                    <span class="slot-info-value">v${slot.version}</span>
+                                </div>
+                                <div class="slot-info-row">
+                                    <span class="slot-info-label">使用次数:</span>
+                                    <span class="slot-info-value">${slot.use_count}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                const nextSlot = data.current_slot;
+                const queueLength = data.queue_length || 0;
+                
+                container.innerHTML = `
+                    <div class="credentials-pool">
+                        <div class="credentials-pool-header">
+                            <div class="credentials-pool-title">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                                凭证池状态
+                            </div>
+                            <div class="credentials-pool-info">
+                                下一个替换: 槽位 ${nextSlot} | 队列: ${queueLength} 个请求
+                            </div>
+                        </div>
+                        <div class="slots-grid">
+                            ${slotsHtml}
+                        </div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('加载凭证池状态失败:', error);
+                container.innerHTML = '';
+            }
+        }
             }
         }
         
