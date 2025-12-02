@@ -300,8 +300,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 """
 
     def _get_recovery_page(self):
-"""返回恢复页面HTML（用于无头模式）"""
-return """
+        """返回恢复页面HTML（用于无头模式）"""
+        return """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
