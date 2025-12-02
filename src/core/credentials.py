@@ -50,8 +50,8 @@ class CredentialManager:
         # 清理旧凭证数据，释放内存
         if self.latest_harvest:
             print(f"🧹 清理旧凭证数据...")
-            self.latest_harvest.clear()
-            self.latest_harvest = None
+            # 直接删除引用，让垃圾回收器回收内存
+            del self.latest_harvest
         
         # 保存新凭证
         self.latest_harvest = data
